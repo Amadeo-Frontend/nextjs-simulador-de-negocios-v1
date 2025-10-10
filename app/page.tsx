@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ModeToggle } from './components/mode-toggle';
 
 // ===== Tipos =====
 type Product = { sku: string; nome: string; preco_venda: number; custo: number };
@@ -27,11 +28,15 @@ type Simulacao = {
 // util para moeda e %
 const moeda = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const pct = (v: number) => (v * 100).toFixed(2) + '%';
-const newId = () => (globalThis.crypto?.randomUUID() ? crypto.randomUUID() : String(Date.now() + Math.random()));
 
 export default function Home() {
   const [produtos, setProdutos] = useState<Product[]>([]);
-  const [itens, setItens] = useState<OrderItem[]>([{ id: newId(), sku: '', qty: 1 }]);
+  const idSeq = useRef(0);
+  const [itens, setItens] = useState<OrderItem[]>(() => [{ id: 'i0', sku: '', qty: 1 }]);
+  useEffect(() => {
+    idSeq.current = 1; // evita ids diferentes entre SSR/cliente
+  }, []);
+
   const [sim, setSim] = useState<Simulacao | null>(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(true);
@@ -52,7 +57,7 @@ export default function Home() {
   }, []);
 
   const totalPedido = useMemo(() => {
-    const map = new Map(produtos.map(p => [p.sku, p]));
+    const map = new Map(produtos.map((p) => [p.sku, p]));
     return itens.reduce(
       (acc, it) => {
         const p = map.get(it.sku);
@@ -66,18 +71,20 @@ export default function Home() {
   }, [itens, produtos]);
 
   // ===== Ações =====
-  const addLinha = () => setItens(prev => [...prev, { id: newId(), sku: '', qty: 1 }]);
+  const novoId = () => `i${idSeq.current++}`;
 
-  const rmLinha = (id: string) => setItens(prev => prev.filter(i => i.id !== id));
+  const addLinha = () => setItens((prev) => [...prev, { id: novoId(), sku: '', qty: 1 }]);
+
+  const rmLinha = (id: string) => setItens((prev) => prev.filter((i) => i.id !== id));
 
   const atualizarItem = (id: string, patch: Partial<Omit<OrderItem, 'id'>>) =>
-    setItens(prev => prev.map(i => (i.id === id ? { ...i, ...patch } : i)));
+    setItens((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
 
   const simular = async () => {
     setErro('');
     setSim(null);
 
-    const payload = { itens: itens.filter(i => i.sku && i.qty > 0).map(({ sku, qty }) => ({ sku, qty })) };
+    const payload = { itens: itens.filter((i) => i.sku && i.qty > 0).map(({ sku, qty }) => ({ sku, qty })) };
     if (!payload.itens.length) {
       setErro('Adicione ao menos um item com SKU e quantidade.');
       return;
@@ -99,11 +106,20 @@ export default function Home() {
   if (carregando) return <p className="text-center mt-10">Carregando produtos…</p>;
 
   return (
-    <main className="min-h-screen p-6 bg-gray-100">
-      <div className="mx-auto max-w-3xl bg-white rounded-xl shadow p-6 space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-bold text-gray-900">Simulador de Pedido & Bonificação</h1>
-          <p className="text-gray-600">Monte o pedido e calcule bônus (R$ e pacotes) e a margem final.</p>
+    <main className="min-h-screen p-6 bg-gray-100 text-gray-900 dark:bg-slate-900 dark:text-slate-100 transition-colors">
+      <div
+        className="mx-auto max-w-3xl rounded-xl shadow p-6 space-y-6
+                   bg-white border border-slate-200
+                   dark:bg-slate-800 dark:border-slate-700"
+      >
+        <header className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold">Simulador de Pedido & Bonificação</h1>
+            <p className="text-gray-600 dark:text-slate-300">
+              Monte o pedido e calcule bônus (R$ e pacotes) e a margem final.
+            </p>
+          </div>
+          <ModeToggle />
         </header>
 
         {/* Linhas do pedido */}
@@ -114,16 +130,17 @@ export default function Home() {
             return (
               <div key={it.id} className="grid grid-cols-12 gap-3 items-end">
                 <div className="col-span-8">
-                  <label htmlFor={selectId} className="block text-sm font-medium text-gray-700">
+                  <label htmlFor={selectId} className="block text-sm font-medium">
                     Produto
                   </label>
                   <select
                     id={selectId}
                     name="produto"
-                    className="mt-1 w-full border rounded-md p-2"
+                    className="mt-1 w-full border rounded-md p-2
+                               bg-white text-gray-900 border-slate-300
+                               dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700"
                     value={it.sku}
                     onChange={(e) => atualizarItem(it.id, { sku: e.target.value })}
-                    aria-describedby={`${selectId}-help`}
                   >
                     <option value="" disabled>
                       Selecione…
@@ -134,13 +151,10 @@ export default function Home() {
                       </option>
                     ))}
                   </select>
-                  <p id={`${selectId}-help`} className="sr-only">
-                    Escolha o produto para esta linha do pedido
-                  </p>
                 </div>
 
                 <div className="col-span-3">
-                  <label htmlFor={qtyId} className="block text-sm font-medium text-gray-700">
+                  <label htmlFor={qtyId} className="block text-sm font-medium">
                     Quantidade
                   </label>
                   <input
@@ -148,7 +162,9 @@ export default function Home() {
                     name="quantidade"
                     type="number"
                     min={1}
-                    className="mt-1 w-full border rounded-md p-2"
+                    className="mt-1 w-full border rounded-md p-2
+                               bg-white text-gray-900 border-slate-300
+                               dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700"
                     value={it.qty}
                     onChange={(e) => atualizarItem(it.id, { qty: Number(e.target.value) || 0 })}
                   />
@@ -158,8 +174,10 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => rmLinha(it.id)}
-                    className="w-full border rounded-md p-2"
-                    aria-label="Remover item do pedido"
+                    className="w-full border rounded-md p-2
+                               bg-white hover:bg-slate-50 border-slate-300
+                               dark:bg-slate-900 dark:hover:bg-slate-800 dark:border-slate-700"
+                    aria-label="Remover item"
                     title="Remover item"
                   >
                     −
@@ -173,49 +191,69 @@ export default function Home() {
             <button
               type="button"
               onClick={addLinha}
-              className="px-3 py-2 rounded-md bg-slate-100 border"
+              className="px-3 py-2 rounded-md bg-slate-100 border border-slate-300
+                         hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 dark:border-slate-600"
             >
               + Item
             </button>
             <button
               type="button"
               onClick={simular}
-              className="px-4 py-2 rounded-md bg-indigo-600 text-white"
+              className="px-4 py-2 rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
             >
               Simular
             </button>
           </div>
         </div>
 
-        {/* Totais parciais do pedido (cliente gosta de ver) */}
-        <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-md">
-          <div><b>Receita (itens):</b> {moeda(totalPedido.receita)}</div>
-          <div><b>COGS (itens):</b> {moeda(totalPedido.custo)}</div>
+        {/* Totais parciais */}
+        <div className="grid grid-cols-2 gap-4 p-4 rounded-md bg-slate-50 dark:bg-slate-700/40">
+          <div>
+            <b>Receita (itens):</b> {moeda(totalPedido.receita)}
+          </div>
+          <div>
+            <b>COGS (itens):</b> {moeda(totalPedido.custo)}
+          </div>
         </div>
 
-        {erro && <p className="text-red-600">{erro}</p>}
+        {erro && <p className="text-red-600 dark:text-rose-400">{erro}</p>}
 
-        {/* Resultado da simulação */}
+        {/* Resultado */}
         {sim && (
-          <section className="border rounded-lg p-4 bg-green-50 space-y-3" aria-live="polite">
-            <h2 className="text-lg font-semibold text-green-800">Resultado da Simulação</h2>
+          <section
+            className="rounded-lg p-4 space-y-3
+                       bg-green-50 border border-green-200
+                       dark:bg-emerald-900/30 dark:border-emerald-800/60"
+            aria-live="polite"
+          >
+            <h2 className="text-lg font-semibold">Resultado da Simulação</h2>
 
-            <div className="grid grid-cols-2 gap-2 text-green-900">
-              <div><b>Receita:</b> {moeda(sim.receita)}</div>
-              <div><b>COGS:</b> {moeda(sim.cogs)}</div>
-              <div><b>Margem sem bônus:</b> {pct(sim.margem_sem_bonus)}</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <b>Receita:</b> {moeda(sim.receita)}
+              </div>
+              <div>
+                <b>COGS:</b> {moeda(sim.cogs)}
+              </div>
+              <div>
+                <b>Margem sem bônus:</b> {pct(sim.margem_sem_bonus)}
+              </div>
             </div>
 
-            <hr className="border-green-200" />
+            <hr className="border-green-200 dark:border-emerald-800/60" />
 
-            <div className="grid grid-cols-2 gap-2 text-green-900">
-              <div><b>Bônus em dinheiro:</b> {moeda(sim.bonus_dinheiro)}</div>
-              <div><b>Margem com dinheiro:</b> {pct(sim.margem_com_dinheiro)}</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <b>Bônus em dinheiro:</b> {moeda(sim.bonus_dinheiro)}
+              </div>
+              <div>
+                <b>Margem com dinheiro:</b> {pct(sim.margem_com_dinheiro)}
+              </div>
             </div>
 
-            <hr className="border-green-200" />
+            <hr className="border-green-200 dark:border-emerald-800/60" />
 
-            <div className="text-green-900 space-y-1">
+            <div className="space-y-1">
               <b>Pacotes grátis:</b>{' '}
               {sim.pacotes_gratis.length ? (
                 <ul className="list-disc pl-6">
@@ -228,16 +266,13 @@ export default function Home() {
               ) : (
                 <span>nenhum</span>
               )}
-              <div><b>Custo dos pacotes:</b> {moeda(sim.custo_pacotes)}</div>
-              <div><b>Margem com pacotes:</b> {pct(sim.margem_com_pacotes)}</div>
+              <div>
+                <b>Custo dos pacotes:</b> {moeda(sim.custo_pacotes)}
+              </div>
+              <div>
+                <b>Margem com pacotes:</b> {pct(sim.margem_com_pacotes)}
+              </div>
             </div>
-
-            {sim.regra_aplicada && (
-              <p className="text-sm text-slate-600">
-                Regra aplicada: R$ {sim.regra_aplicada.faixa_inicio}–{sim.regra_aplicada.faixa_fim} •
-                bônus {sim.regra_aplicada.bonus_percentual}% • {sim.regra_aplicada.pacotes_gratis} pacotes
-              </p>
-            )}
           </section>
         )}
       </div>
