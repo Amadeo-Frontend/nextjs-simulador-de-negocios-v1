@@ -1,113 +1,244 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-interface RegraBonificacao {
-  nivel: string;
-  faixaInicio: number;
-  faixaFim: number;
-  bonificacaoPercentual: number;
-  pacotesRacao: number;
-}
+// ===== Tipos =====
+type Product = { sku: string; nome: string; preco_venda: number; custo: number };
+type OrderItem = { id: string; sku: string; qty: number };
 
-interface ResultadoSimulacao {
-  nivel: string;
-  valorBonificacao: number;
-  pacotesRacao: number;
-}
+type PacoteSugestao = { sku: string; qty: number; custo_total: number };
+type Simulacao = {
+  receita: number;
+  cogs: number;
+  margem_sem_bonus: number;
+  bonus_dinheiro: number;
+  margem_com_dinheiro: number;
+  pacotes_gratis: PacoteSugestao[];
+  custo_pacotes: number;
+  margem_com_pacotes: number;
+  regra_aplicada?: {
+    faixa_inicio: number;
+    faixa_fim: number;
+    bonus_percentual: number;
+    pacotes_gratis: number;
+  };
+};
+
+// util para moeda e %
+const moeda = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const pct = (v: number) => (v * 100).toFixed(2) + '%';
+const newId = () => (globalThis.crypto?.randomUUID() ? crypto.randomUUID() : String(Date.now() + Math.random()));
 
 export default function Home() {
-  const [valorPedido, setValorPedido] = useState('');
-  const [regras, setRegras] = useState<RegraBonificacao[]>([]);
-  const [resultado, setResultado] = useState<ResultadoSimulacao | null>(null);
+  const [produtos, setProdutos] = useState<Product[]>([]);
+  const [itens, setItens] = useState<OrderItem[]>([{ id: newId(), sku: '', qty: 1 }]);
+  const [sim, setSim] = useState<Simulacao | null>(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
-    const fetchRegras = async () => {
+    (async () => {
       try {
-        const response = await fetch('/api/regras', { cache: 'no-store' });
-        if (!response.ok) throw new Error('Falha ao carregar as regras da API.');
-        const data: RegraBonificacao[] = await response.json();
-        setRegras(data);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Erro desconhecido.';
-        setErro(msg);
+        const r = await fetch('/api/products', { cache: 'no-store' });
+        if (!r.ok) throw new Error('Falha ao carregar produtos.');
+        const data: Product[] = await r.json();
+        setProdutos(data);
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : 'Erro ao carregar produtos.');
       } finally {
         setCarregando(false);
       }
-    };
-    fetchRegras();
+    })();
   }, []);
 
-  const handleSimular = () => {
-    setErro('');
-    setResultado(null);
+  const totalPedido = useMemo(() => {
+    const map = new Map(produtos.map(p => [p.sku, p]));
+    return itens.reduce(
+      (acc, it) => {
+        const p = map.get(it.sku);
+        if (!p) return acc;
+        acc.receita += p.preco_venda * it.qty;
+        acc.custo += p.custo * it.qty;
+        return acc;
+      },
+      { receita: 0, custo: 0 }
+    );
+  }, [itens, produtos]);
 
-    const valor = Number(valorPedido);
-    if (!Number.isFinite(valor) || valor <= 0) {
-      setErro('Por favor, digite um valor de pedido válido.');
+  // ===== Ações =====
+  const addLinha = () => setItens(prev => [...prev, { id: newId(), sku: '', qty: 1 }]);
+
+  const rmLinha = (id: string) => setItens(prev => prev.filter(i => i.id !== id));
+
+  const atualizarItem = (id: string, patch: Partial<Omit<OrderItem, 'id'>>) =>
+    setItens(prev => prev.map(i => (i.id === id ? { ...i, ...patch } : i)));
+
+  const simular = async () => {
+    setErro('');
+    setSim(null);
+
+    const payload = { itens: itens.filter(i => i.sku && i.qty > 0).map(({ sku, qty }) => ({ sku, qty })) };
+    if (!payload.itens.length) {
+      setErro('Adicione ao menos um item com SKU e quantidade.');
       return;
     }
-
-    const regraEncontrada = regras.find(
-      (regra) => valor >= regra.faixaInicio && valor <= regra.faixaFim
-    );
-
-    if (regraEncontrada) {
-      const valorBonificacao = (valor * regraEncontrada.bonificacaoPercentual) / 100;
-      setResultado({
-        nivel: regraEncontrada.nivel,
-        valorBonificacao,
-        pacotesRacao: regraEncontrada.pacotesRacao,
+    try {
+      const r = await fetch('/api/simular', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
       });
-    } else {
-      setErro('Nenhuma regra de bonificação encontrada para este valor.');
+      if (!r.ok) throw new Error('Falha na simulação.');
+      const data: Simulacao = await r.json();
+      setSim(data);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro desconhecido ao simular.');
     }
   };
 
-  if (carregando) return <p className="text-center mt-10">Carregando regras da API...</p>;
-  if (erro && !resultado) return <p className="text-center mt-10 text-red-500">Erro: {erro}</p>;
+  if (carregando) return <p className="text-center mt-10">Carregando produtos…</p>;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gray-100">
-      <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg">
-        <h1 className="text-3xl font-bold text-center text-gray-800">Simulador de Bonificação</h1>
-        <p className="text-center text-gray-600">Digite o valor total do pedido para simular a bonificação.</p>
+    <main className="min-h-screen p-6 bg-gray-100">
+      <div className="mx-auto max-w-3xl bg-white rounded-xl shadow p-6 space-y-6">
+        <header className="space-y-1">
+          <h1 className="text-2xl font-bold text-gray-900">Simulador de Pedido & Bonificação</h1>
+          <p className="text-gray-600">Monte o pedido e calcule bônus (R$ e pacotes) e a margem final.</p>
+        </header>
 
-        <div>
-          <label htmlFor="valorPedido" className="block text-sm font-medium text-gray-700">
-            Valor do Pedido (R$)
-          </label>
-          <input
-            id="valorPedido"
-            type="number"
-            inputMode="decimal"
-            value={valorPedido}
-            onChange={(e) => setValorPedido(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            placeholder="Ex: 7500"
-          />
+        {/* Linhas do pedido */}
+        <div className="space-y-4">
+          {itens.map((it) => {
+            const selectId = `sku-${it.id}`;
+            const qtyId = `qty-${it.id}`;
+            return (
+              <div key={it.id} className="grid grid-cols-12 gap-3 items-end">
+                <div className="col-span-8">
+                  <label htmlFor={selectId} className="block text-sm font-medium text-gray-700">
+                    Produto
+                  </label>
+                  <select
+                    id={selectId}
+                    name="produto"
+                    className="mt-1 w-full border rounded-md p-2"
+                    value={it.sku}
+                    onChange={(e) => atualizarItem(it.id, { sku: e.target.value })}
+                    aria-describedby={`${selectId}-help`}
+                  >
+                    <option value="" disabled>
+                      Selecione…
+                    </option>
+                    {produtos.map((p) => (
+                      <option key={p.sku} value={p.sku}>
+                        {p.nome} ({p.sku})
+                      </option>
+                    ))}
+                  </select>
+                  <p id={`${selectId}-help`} className="sr-only">
+                    Escolha o produto para esta linha do pedido
+                  </p>
+                </div>
+
+                <div className="col-span-3">
+                  <label htmlFor={qtyId} className="block text-sm font-medium text-gray-700">
+                    Quantidade
+                  </label>
+                  <input
+                    id={qtyId}
+                    name="quantidade"
+                    type="number"
+                    min={1}
+                    className="mt-1 w-full border rounded-md p-2"
+                    value={it.qty}
+                    onChange={(e) => atualizarItem(it.id, { qty: Number(e.target.value) || 0 })}
+                  />
+                </div>
+
+                <div className="col-span-1">
+                  <button
+                    type="button"
+                    onClick={() => rmLinha(it.id)}
+                    className="w-full border rounded-md p-2"
+                    aria-label="Remover item do pedido"
+                    title="Remover item"
+                  >
+                    −
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={addLinha}
+              className="px-3 py-2 rounded-md bg-slate-100 border"
+            >
+              + Item
+            </button>
+            <button
+              type="button"
+              onClick={simular}
+              className="px-4 py-2 rounded-md bg-indigo-600 text-white"
+            >
+              Simular
+            </button>
+          </div>
         </div>
 
-        <button
-          onClick={handleSimular}
-          className="w-full flex justify-center py-2 px-4 rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        >
-          Simular
-        </button>
+        {/* Totais parciais do pedido (cliente gosta de ver) */}
+        <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-md">
+          <div><b>Receita (itens):</b> {moeda(totalPedido.receita)}</div>
+          <div><b>COGS (itens):</b> {moeda(totalPedido.custo)}</div>
+        </div>
 
-        {erro && <p className="text-red-500 text-sm text-center">{erro}</p>}
+        {erro && <p className="text-red-600">{erro}</p>}
 
-        {resultado && (
-          <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+        {/* Resultado da simulação */}
+        {sim && (
+          <section className="border rounded-lg p-4 bg-green-50 space-y-3" aria-live="polite">
             <h2 className="text-lg font-semibold text-green-800">Resultado da Simulação</h2>
-            <div className="mt-2 space-y-1 text-green-700">
-              <p><strong>Nível Alcançado:</strong> {resultado.nivel}</p>
-              <p><strong>Bonificação em Dinheiro:</strong> R$ {resultado.valorBonificacao.toFixed(2)}</p>
-              <p><strong>Pacotes de Ração (20kg):</strong> {resultado.pacotesRacao}</p>
+
+            <div className="grid grid-cols-2 gap-2 text-green-900">
+              <div><b>Receita:</b> {moeda(sim.receita)}</div>
+              <div><b>COGS:</b> {moeda(sim.cogs)}</div>
+              <div><b>Margem sem bônus:</b> {pct(sim.margem_sem_bonus)}</div>
             </div>
-          </div>
+
+            <hr className="border-green-200" />
+
+            <div className="grid grid-cols-2 gap-2 text-green-900">
+              <div><b>Bônus em dinheiro:</b> {moeda(sim.bonus_dinheiro)}</div>
+              <div><b>Margem com dinheiro:</b> {pct(sim.margem_com_dinheiro)}</div>
+            </div>
+
+            <hr className="border-green-200" />
+
+            <div className="text-green-900 space-y-1">
+              <b>Pacotes grátis:</b>{' '}
+              {sim.pacotes_gratis.length ? (
+                <ul className="list-disc pl-6">
+                  {sim.pacotes_gratis.map((p) => (
+                    <li key={p.sku}>
+                      {p.qty}× {p.sku} (custo {moeda(p.custo_total)})
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span>nenhum</span>
+              )}
+              <div><b>Custo dos pacotes:</b> {moeda(sim.custo_pacotes)}</div>
+              <div><b>Margem com pacotes:</b> {pct(sim.margem_com_pacotes)}</div>
+            </div>
+
+            {sim.regra_aplicada && (
+              <p className="text-sm text-slate-600">
+                Regra aplicada: R$ {sim.regra_aplicada.faixa_inicio}–{sim.regra_aplicada.faixa_fim} •
+                bônus {sim.regra_aplicada.bonus_percentual}% • {sim.regra_aplicada.pacotes_gratis} pacotes
+              </p>
+            )}
+          </section>
         )}
       </div>
     </main>
