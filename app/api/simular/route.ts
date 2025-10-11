@@ -1,19 +1,32 @@
-export async function POST(req: Request) {
-  const base = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL;
-  if (!base)
-    return Response.json(
-      { error: "API_URL não configurada." },
-      { status: 500 }
-    );
-  const body = await req.json();
+import { cookies } from "next/headers";
 
-  const r = await fetch(`${base.replace(/\/$/, "")}/simular`, {
+function getBaseUrl() {
+  const raw = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "";
+  const first = raw.split(/[,\s]+/)[0];
+  return first.replace("://localhost", "://127.0.0.1").replace(/\/$/, "");
+}
+
+export async function POST(req: Request) {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("session")?.value;
+  if (!token)
+    return Response.json({ error: "unauthenticated" }, { status: 401 });
+
+  const base = getBaseUrl();
+  if (!base)
+    return Response.json({ error: "API_URL não configurada" }, { status: 500 });
+
+  const payload = await req.json();
+
+  const r = await fetch(`${base}/simular`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
-  if (!r.ok)
-    return Response.json({ error: "Falha ao simular" }, { status: r.status });
-  return Response.json(await r.json());
+
+  const data = await r.json();
+  return Response.json(data, { status: r.status });
 }

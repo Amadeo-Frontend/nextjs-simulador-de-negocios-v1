@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button'; // shadcn
 import { ModeToggle } from './components/mode-toggle';
 
 type Product = { sku: string; nome: string; preco_venda: number; custo: number };
@@ -8,9 +10,8 @@ type OrderItem = {
   id: string;
   sku: string;
   qty: number;
-  // novos campos de bonificação manual por item
-  bonusReais: number;     // R$ concedido nesse item
-  bonusPacotes: number;   // quantidade de pacotes grátis desse SKU
+  bonusReais: number;
+  bonusPacotes: number;
 };
 
 type PacoteSugestao = { sku: string; qty: number; custo_total: number };
@@ -35,6 +36,8 @@ const moeda = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curr
 const pct = (v: number) => (v * 100).toFixed(2) + '%';
 
 export default function Home() {
+  const router = useRouter();
+
   const [produtos, setProdutos] = useState<Product[]>([]);
   const idSeq = useRef(0);
   const [itens, setItens] = useState<OrderItem[]>(() => [
@@ -76,11 +79,9 @@ export default function Home() {
     );
   }, [itens, mapaProdutos]);
 
-  // ===== Bonificações manuais (calculadas no cliente) =====
   const bonusManuais = useMemo(() => {
     let bonusDinheiro = 0;
     let custoPacotes = 0;
-
     for (const it of itens) {
       const p = mapaProdutos.get(it.sku);
       if (!p) continue;
@@ -91,7 +92,6 @@ export default function Home() {
     const cogs = totaisBase.cogs;
     const margemComManuais =
       receita > 0 ? (receita - cogs - bonusDinheiro - custoPacotes) / receita : 0;
-
     return { bonusDinheiro, custoPacotes, margemComManuais };
   }, [itens, mapaProdutos, totaisBase]);
 
@@ -109,7 +109,6 @@ export default function Home() {
   const simular = async () => {
     setErro('');
     setSim(null);
-
     const payload = {
       itens: itens
         .filter(i => i.sku && i.qty > 0)
@@ -133,6 +132,15 @@ export default function Home() {
     }
   };
 
+  // ===== Logout =====
+  const onLogout = async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } finally {
+      router.replace('/login');
+    }
+  };
+
   if (carregando) return <p className="text-center mt-10">Carregando produtos…</p>;
 
   return (
@@ -145,7 +153,14 @@ export default function Home() {
               Defina bonificações por item (R$ e pacotes) e veja a margem geral.
             </p>
           </div>
-          <ModeToggle />
+
+          {/* Ações (tema + logout) */}
+          <div className="flex items-center gap-2">
+            <ModeToggle />
+            <Button variant="outline" onClick={onLogout} aria-label="Sair da aplicação">
+              Sair
+            </Button>
+          </div>
         </header>
 
         {/* Linhas do pedido */}
@@ -169,9 +184,7 @@ export default function Home() {
                     value={it.sku}
                     onChange={e => atualizarItem(it.id, { sku: e.target.value })}
                   >
-                    <option value="" disabled>
-                      Selecione…
-                    </option>
+                    <option value="" disabled>Selecione…</option>
                     {produtos.map(p => (
                       <option key={p.sku} value={p.sku}>
                         {p.nome} ({p.sku})
@@ -182,9 +195,7 @@ export default function Home() {
 
                 {/* Quantidade */}
                 <div className="col-span-2">
-                  <label htmlFor={qtyId} className="block text-sm font-medium">
-                    Qtd
-                  </label>
+                  <label htmlFor={qtyId} className="block text-sm font-medium">Qtd</label>
                   <input
                     id={qtyId}
                     type="number"
@@ -197,9 +208,7 @@ export default function Home() {
 
                 {/* Bônus R$ */}
                 <div className="col-span-2">
-                  <label htmlFor={bonusReaisId} className="block text-sm font-medium">
-                    Bônus (R$)
-                  </label>
+                  <label htmlFor={bonusReaisId} className="block text-sm font-medium">Bônus (R$)</label>
                   <input
                     id={bonusReaisId}
                     type="number"
@@ -207,18 +216,14 @@ export default function Home() {
                     step="0.01"
                     className="mt-1 w-full border rounded-md p-2 bg-white text-gray-900 border-slate-300 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700"
                     value={it.bonusReais}
-                    onChange={e =>
-                      atualizarItem(it.id, { bonusReais: Math.max(0, Number(e.target.value) || 0) })
-                    }
+                    onChange={e => atualizarItem(it.id, { bonusReais: Math.max(0, Number(e.target.value) || 0) })}
                     placeholder="0,00"
                   />
                 </div>
 
                 {/* Pacotes grátis */}
                 <div className="col-span-2">
-                  <label htmlFor={bonusPacId} className="block text-sm font-medium">
-                    Pacotes grátis
-                  </label>
+                  <label htmlFor={bonusPacId} className="block text-sm font-medium">Pacotes grátis</label>
                   <input
                     id={bonusPacId}
                     type="number"
@@ -226,9 +231,7 @@ export default function Home() {
                     step="1"
                     className="mt-1 w-full border rounded-md p-2 bg-white text-gray-900 border-slate-300 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700"
                     value={it.bonusPacotes}
-                    onChange={e =>
-                      atualizarItem(it.id, { bonusPacotes: Math.max(0, Number(e.target.value) || 0) })
-                    }
+                    onChange={e => atualizarItem(it.id, { bonusPacotes: Math.max(0, Number(e.target.value) || 0) })}
                     placeholder="0"
                   />
                 </div>
@@ -269,20 +272,13 @@ export default function Home() {
 
         {/* Totais base */}
         <div className="grid grid-cols-2 gap-4 p-4 rounded-md bg-slate-50 dark:bg-slate-700/40">
-          <div>
-            <b>Receita (itens):</b> {moeda(totaisBase.receita)}
-          </div>
-          <div>
-            <b>COGS (itens):</b> {moeda(totaisBase.cogs)}
-          </div>
+          <div><b>Receita (itens):</b> {moeda(totaisBase.receita)}</div>
+          <div><b>COGS (itens):</b> {moeda(totaisBase.cogs)}</div>
         </div>
 
         {/* Resultado das Regras (backend) */}
         {sim && (
-          <section
-            className="rounded-lg p-4 space-y-3 bg-blue-50 border border-blue-200 dark:bg-sky-900/30 dark:border-sky-800/60"
-            aria-live="polite"
-          >
+          <section className="rounded-lg p-4 space-y-3 bg-blue-50 border border-blue-200 dark:bg-sky-900/30 dark:border-sky-800/60" aria-live="polite">
             <h2 className="text-lg font-semibold">Resultado (Regras da Tabela)</h2>
             <div className="grid grid-cols-2 gap-2">
               <div><b>Receita:</b> {moeda(sim.receita)}</div>
@@ -297,19 +293,14 @@ export default function Home() {
         )}
 
         {/* Bonificações manuais (por item) */}
-        <section
-          className="rounded-lg p-4 space-y-3 bg-green-50 border border-green-200 dark:bg-emerald-900/30 dark:border-emerald-800/60"
-          aria-live="polite"
-        >
+        <section className="rounded-lg p-4 space-y-3 bg-green-50 border border-green-200 dark:bg-emerald-900/30 dark:border-emerald-800/60" aria-live="polite">
           <h2 className="text-lg font-semibold">Bonificações Manuais (por item)</h2>
           <div className="grid grid-cols-2 gap-2">
             <div><b>Receita:</b> {moeda(totaisBase.receita)}</div>
             <div><b>COGS:</b> {moeda(totaisBase.cogs)}</div>
             <div><b>Total bônus em dinheiro (manual):</b> {moeda(bonusManuais.bonusDinheiro)}</div>
             <div><b>Custo dos pacotes (manual):</b> {moeda(bonusManuais.custoPacotes)}</div>
-            <div className="col-span-2">
-              <b>Margem com bonificações manuais:</b> {pct(bonusManuais.margemComManuais)}
-            </div>
+            <div className="col-span-2"><b>Margem com bonificações manuais:</b> {pct(bonusManuais.margemComManuais)}</div>
           </div>
         </section>
 
