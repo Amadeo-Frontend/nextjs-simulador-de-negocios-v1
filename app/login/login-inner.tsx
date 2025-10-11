@@ -53,7 +53,7 @@ export default function LoginInner() {
             className="mt-1 w-full border rounded-md p-2"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="admin@sulpet.com"
+            placeholder="Digite seu email"
           />
         </div>
 
