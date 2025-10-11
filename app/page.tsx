@@ -60,10 +60,19 @@ export default function Home() {
 
     (async () => {
       setErro('');
+
       // 1) checa sessão
-      const me = await fetch('/api/me', { cache: 'no-store' });
-      if (!me.ok) {
-        // evita loop infinito se já estivermos no /login
+      try {
+        const me = await fetch('/api/me', { cache: 'no-store' });
+        if (!me.ok) {
+          console.warn('/api/me falhou com status', me.status);
+          if (!stopped) setCarregando(false);       // <-- evita "carregando" infinito
+          router.replace('/login');
+          return;
+        }
+      } catch (e) {
+        console.error('Erro chamando /api/me:', e);
+        if (!stopped) setCarregando(false);         // <-- idem
         router.replace('/login');
         return;
       }
@@ -72,7 +81,7 @@ export default function Home() {
       try {
         const r = await fetch('/api/products', { cache: 'no-store' });
         if (!r.ok) {
-          const body = await r.json().catch(() => ({} as unknown));
+          const body: any = await r.json().catch(() => ({}));
           throw new Error(body?.error || 'Falha ao carregar produtos.');
         }
         const data: Product[] = await r.json();
@@ -162,7 +171,7 @@ export default function Home() {
           router.replace('/login');
           return;
         }
-        const body = await r.json().catch(() => ({} as unknown));
+        const body: any = await r.json().catch(() => ({}));
         throw new Error(body?.error || 'Falha na simulação.');
       }
       const data: Simulacao = await r.json();
