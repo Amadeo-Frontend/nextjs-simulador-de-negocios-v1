@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-/* ===== Tipos ===== */
+/* ================= Tipos ================= */
 type Product = { sku: string; nome: string; preco_venda: number; custo: number };
+
 type OrderItem = {
   id: string;
   sku: string;
@@ -14,6 +15,7 @@ type OrderItem = {
 };
 
 type PacoteSugestao = { sku: string; qty: number; custo_total: number };
+
 type Simulacao = {
   receita: number;
   cogs: number;
@@ -31,12 +33,26 @@ type Simulacao = {
   };
 };
 
-/* ===== Helpers ===== */
+type ApiError = {
+  error?: string;
+  detail?: string;
+  message?: string;
+};
+
+/* ================= Helpers ================= */
 const moeda = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const pct = (v: number) => (v * 100).toFixed(2) + '%';
 
-/* ===== Página ===== */
+async function safeJson<T>(res: Response): Promise<T | null> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+/* ================= Página ================= */
 export default function Home() {
   const router = useRouter();
 
@@ -66,13 +82,13 @@ export default function Home() {
         const me = await fetch('/api/me', { cache: 'no-store' });
         if (!me.ok) {
           console.warn('/api/me falhou com status', me.status);
-          if (!stopped) setCarregando(false);       // <-- evita "carregando" infinito
+          if (!stopped) setCarregando(false); // evita "carregando..." infinito
           router.replace('/login');
           return;
         }
       } catch (e) {
         console.error('Erro chamando /api/me:', e);
-        if (!stopped) setCarregando(false);         // <-- idem
+        if (!stopped) setCarregando(false);
         router.replace('/login');
         return;
       }
@@ -81,13 +97,16 @@ export default function Home() {
       try {
         const r = await fetch('/api/products', { cache: 'no-store' });
         if (!r.ok) {
-          const body: any = await r.json().catch(() => ({}));
-          throw new Error(body?.error || 'Falha ao carregar produtos.');
+          const body = await safeJson<ApiError>(r);
+          throw new Error(
+            body?.error ?? body?.detail ?? body?.message ?? 'Falha ao carregar produtos.'
+          );
         }
-        const data: Product[] = await r.json();
+        const data = await r.json() as Product[];
         if (!stopped) setProdutos(data);
       } catch (e) {
-        if (!stopped) setErro(e instanceof Error ? e.message : 'Falha ao carregar produtos.');
+        if (!stopped)
+          setErro(e instanceof Error ? e.message : 'Falha ao carregar produtos.');
       } finally {
         if (!stopped) setCarregando(false);
       }
@@ -141,8 +160,10 @@ export default function Home() {
       ...prev,
       { id: novoId(), sku: '', qty: 1, bonusReais: 0, bonusPacotes: 0 },
     ]);
+
   const rmLinha = (id: string) =>
     setItens((prev) => prev.filter((i) => i.id !== id));
+
   const atualizarItem = (id: string, patch: Partial<Omit<OrderItem, 'id'>>) =>
     setItens((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
 
@@ -166,15 +187,19 @@ export default function Home() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
       if (!r.ok) {
         if (r.status === 401) {
           router.replace('/login');
           return;
         }
-        const body: any = await r.json().catch(() => ({}));
-        throw new Error(body?.error || 'Falha na simulação.');
+        const body = await safeJson<ApiError>(r);
+        throw new Error(
+          body?.error ?? body?.detail ?? body?.message ?? 'Falha na simulação.'
+        );
       }
-      const data: Simulacao = await r.json();
+
+      const data = await r.json() as Simulacao;
       setSim(data);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro desconhecido ao simular.');
@@ -299,7 +324,7 @@ export default function Home() {
                     id={bonusPacId}
                     type="number"
                     min={0}
-                    step="1"
+                    step={1}
                     className="mt-1 w-full border rounded-md p-2 bg-white"
                     value={it.bonusPacotes}
                     onChange={(e) =>
