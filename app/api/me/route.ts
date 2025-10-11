@@ -2,13 +2,14 @@ import { cookies } from "next/headers";
 
 function getBaseUrl() {
   const raw = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "";
-  const first = raw.split(/[,\s]+/)[0]; // evita vírgulas/espacos acidentais
+  const first = raw.split(/[,\s]+/)[0];
   return first.replace("://localhost", "://127.0.0.1").replace(/\/$/, "");
 }
 
 export async function GET() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("session")?.value;
+  // AGORA: await cookies()
+  const jar = await cookies();
+  const token = jar.get("session")?.value;
   if (!token) {
     return Response.json({ error: "unauthenticated" }, { status: 401 });
   }
@@ -23,6 +24,6 @@ export async function GET() {
     cache: "no-store",
   });
 
-  const data = await r.json();
+  const data = await r.json().catch(() => ({}));
   return Response.json(data, { status: r.status });
 }
