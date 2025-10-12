@@ -1,3 +1,4 @@
+// frontend/app/api/me/route.ts
 import { cookies } from "next/headers";
 
 function getBaseUrl() {
@@ -7,7 +8,13 @@ function getBaseUrl() {
 }
 
 export async function GET() {
-  const jar = await cookies(); // <- IMPORTANTE
+  // Quando a auth estiver desligada no backend, devolvemos um "usuário fake"
+  if (process.env.NEXT_PUBLIC_SKIP_LOGIN === "1") {
+    return Response.json({ email: "no-auth@sulpet.com" }, { status: 200 });
+  }
+
+  // Caminho normal (com auth)
+  const jar = await cookies();
   const token = jar.get("session")?.value;
   if (!token) {
     return Response.json({ error: "unauthenticated" }, { status: 401 });
