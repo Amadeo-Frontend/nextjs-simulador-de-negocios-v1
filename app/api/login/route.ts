@@ -25,15 +25,14 @@ export async function POST(req: Request) {
   if (!r.ok) {
     const txt = await r.text().catch(() => "");
     return Response.json(
-      { error: txt || "Login inválido" },
+      { error: txt || "Credenciais inválidas" },
       { status: r.status }
     );
   }
 
   const data: { access_token: string; exp: number } = await r.json();
 
-  // AGORA: await cookies()
-  const jar = await cookies();
+  const jar = await cookies(); // <- IMPORTANTE
   jar.set({
     name: "session",
     value: data.access_token,

@@ -7,18 +7,13 @@ function getBaseUrl() {
 }
 
 export async function GET() {
-  // AGORA: await cookies()
-  const jar = await cookies();
+  const jar = await cookies(); // <- IMPORTANTE
   const token = jar.get("session")?.value;
   if (!token) {
     return Response.json({ error: "unauthenticated" }, { status: 401 });
   }
 
   const base = getBaseUrl();
-  if (!base) {
-    return Response.json({ error: "API_URL não configurada" }, { status: 500 });
-  }
-
   const r = await fetch(`${base}/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
