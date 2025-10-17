@@ -1,17 +1,23 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
+import { Trash2 } from 'lucide-react';
 
-/* ================= Tipos ================= */
-type Product = { sku: string; nome: string; preco_venda: number; custo: number };
+/* ===== Tipos ===== */
+type Product = {
+  sku: string;
+  nome: string;
+  preco_venda: number;
+  custo: number;
+};
 
 type OrderItem = {
   id: string;
   sku: string;
   qty: number;
-  bonusReais: number;     // bônus manual em R$ por item
-  bonusPacotes: number;   // pacotes grátis manuais por item
+  bonusReais: number;   // bônus manual em R$
+  bonusPacotes: number; // pacotes grátis manuais
 };
 
 type PacoteSugestao = { sku: string; qty: number; custo_total: number };
@@ -33,89 +39,70 @@ type Simulacao = {
   };
 };
 
-type ApiError = {
-  error?: string;
-  detail?: string;
-  message?: string;
-};
+type ApiError = { error?: string; detail?: string; message?: string };
 
-/* ================= Helpers ================= */
+/* ===== Helpers ===== */
 const moeda = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const pct = (v: number) => (v * 100).toFixed(2) + '%';
 
-async function safeJson<T>(res: Response): Promise<T | null> {
-  try {
-    return (await res.json()) as T;
-  } catch {
-    return null;
+async function safeJson<T = unknown>(r: Response): Promise<T | undefined> {
+  try { return (await r.json()) as T; } catch { return undefined; }
+}
+async function safeText(r: Response): Promise<string | undefined> {
+  try { return await r.text(); } catch { return undefined; }
+}
+function extractApiMessage(body: unknown, fallback: string): string {
+  if (body && typeof body === 'object') {
+    const b = body as ApiError;
+    const msg = b.error ?? b.detail ?? b.message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
   }
+  return fallback;
 }
 
-/* ================= Página ================= */
+/* ===== Página ===== */
 export default function Home() {
-  const router = useRouter();
-
   const [produtos, setProdutos] = useState<Product[]>([]);
   const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState('');
 
   const idSeq = useRef(0);
   const [itens, setItens] = useState<OrderItem[]>([
     { id: 'i0', sku: '', qty: 1, bonusReais: 0, bonusPacotes: 0 },
   ]);
-  useEffect(() => {
-    idSeq.current = 1;
-  }, []);
+  useEffect(() => { idSeq.current = 1; }, []);
 
   const [sim, setSim] = useState<Simulacao | null>(null);
 
-  /* ===== Guard: checar sessão e carregar produtos ===== */
+  /* ===== Carregar produtos ===== */
   useEffect(() => {
     let stopped = false;
-
     (async () => {
-      setErro('');
-
-      // 1) checa sessão
-      try {
-        const me = await fetch('/api/me', { cache: 'no-store' });
-        if (!me.ok) {
-          console.warn('/api/me falhou com status', me.status);
-          if (!stopped) setCarregando(false); // evita "carregando..." infinito
-          router.replace('/login');
-          return;
-        }
-      } catch (e) {
-        console.error('Erro chamando /api/me:', e);
-        if (!stopped) setCarregando(false);
-        router.replace('/login');
-        return;
-      }
-
-      // 2) carrega produtos
+      setCarregando(true);
       try {
         const r = await fetch('/api/products', { cache: 'no-store' });
         if (!r.ok) {
-          const body = await safeJson<ApiError>(r);
-          throw new Error(
-            body?.error ?? body?.detail ?? body?.message ?? 'Falha ao carregar produtos.'
-          );
+          const body = await safeJson(r);
+          let msg = extractApiMessage(body, 'Falha ao carregar produtos.');
+          if (!body) {
+            const txt = await safeText(r);
+            if (txt && txt.trim()) msg = txt;
+          }
+          throw new Error(msg);
         }
-        const data = await r.json() as Product[];
-        if (!stopped) setProdutos(data);
+        const data = (await r.json()) as Product[];
+        if (!stopped) {
+          setProdutos(data ?? []);
+          toast.success('Produtos carregados.');
+        }
       } catch (e) {
-        if (!stopped)
-          setErro(e instanceof Error ? e.message : 'Falha ao carregar produtos.');
+        if (!stopped) toast.error(e instanceof Error ? e.message : 'Falha ao carregar produtos.');
       } finally {
         if (!stopped) setCarregando(false);
       }
     })();
-
-    return () => {
-      stopped = true;
-    };
-  }, [router]);
+    return () => { stopped = true; };
+  }, []);
 
   /* ===== Mapas / totais ===== */
   const mapaProdutos = useMemo(
@@ -139,7 +126,6 @@ export default function Home() {
   const bonusManuais = useMemo(() => {
     let bonusDinheiro = 0;
     let custoPacotes = 0;
-
     for (const it of itens) {
       const p = mapaProdutos.get(it.sku);
       if (!p) continue;
@@ -149,7 +135,6 @@ export default function Home() {
     const { receita, cogs } = totaisBase;
     const margemComManuais =
       receita > 0 ? (receita - cogs - bonusDinheiro - custoPacotes) / receita : 0;
-
     return { bonusDinheiro, custoPacotes, margemComManuais };
   }, [itens, mapaProdutos, totaisBase]);
 
@@ -160,115 +145,117 @@ export default function Home() {
       ...prev,
       { id: novoId(), sku: '', qty: 1, bonusReais: 0, bonusPacotes: 0 },
     ]);
-
   const rmLinha = (id: string) =>
     setItens((prev) => prev.filter((i) => i.id !== id));
-
   const atualizarItem = (id: string, patch: Partial<Omit<OrderItem, 'id'>>) =>
     setItens((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
 
   const simular = async () => {
-    setErro('');
     setSim(null);
-
     const payload = {
       itens: itens
         .filter((i) => i.sku && i.qty > 0)
         .map(({ sku, qty }) => ({ sku, qty })),
     };
     if (!payload.itens.length) {
-      setErro('Adicione ao menos um item com SKU e quantidade.');
+      toast.error('Adicione ao menos um item com SKU e quantidade.');
       return;
     }
-
     try {
       const r = await fetch('/api/simular', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
       if (!r.ok) {
-        if (r.status === 401) {
-          router.replace('/login');
-          return;
+        const body = await safeJson(r);
+        let msg = extractApiMessage(body, 'Falha na simulação.');
+        if (!body) {
+          const txt = await safeText(r);
+          if (txt && txt.trim()) msg = txt;
         }
-        const body = await safeJson<ApiError>(r);
-        throw new Error(
-          body?.error ?? body?.detail ?? body?.message ?? 'Falha na simulação.'
-        );
+        throw new Error(msg);
       }
-
-      const data = await r.json() as Simulacao;
+      const data = (await r.json()) as Simulacao;
       setSim(data);
+      toast.success('Simulação concluída.');
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro desconhecido ao simular.');
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await fetch('/api/logout', { method: 'POST' });
-    } finally {
-      router.replace('/login');
+      toast.error(e instanceof Error ? e.message : 'Erro desconhecido ao simular.');
     }
   };
 
   /* ===== Render ===== */
-  if (carregando) {
-    return (
-      <main className="min-h-screen grid place-items-center p-6">
-        <p>Carregando…</p>
-      </main>
-    );
-  }
-
   return (
-    <main className="min-h-screen p-6 bg-gray-50 text-gray-900">
-      <div className="mx-auto max-w-4xl rounded-xl shadow p-6 space-y-6 bg-white">
-        {/* Cabeçalho */}
-        <header className="flex items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-bold">Simulador de Pedido & Bonificação</h1>
-            <p className="text-gray-600">
-              Defina bonificações por item (R$ e pacotes) e veja a margem geral.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={logout}
-            className="px-3 py-2 rounded-md border border-slate-300 hover:bg-slate-50"
-            title="Sair"
-          >
-            Sair
-          </button>
+    <main className="min-h-[calc(100vh-3.5rem)] p-6">
+      <div className="mx-auto max-w-6xl rounded-2xl border bg-card text-card-foreground shadow-sm p-6 space-y-6">
+        <header className="space-y-1">
+          <h1 className="text-2xl font-bold">Simulador de Pedido &amp; Bonificação</h1>
+          <p className="text-muted-foreground">
+            Digite o <b>SKU</b> (3–4 dígitos) ou selecione o produto — ambos funcionam.
+          </p>
         </header>
 
+        {/* datalist global */}
+        <datalist id="dlist-produtos">
+          {produtos.map((p) => (
+            <option key={p.sku} value={p.sku}>
+              {p.nome}
+            </option>
+          ))}
+        </datalist>
+
+        {/* Cabeçalho de colunas (fixa alinhamento) */}
+        <div className="grid grid-cols-[140px_1fr_110px_120px_110px_48px] gap-3 px-1 text-sm font-medium text-muted-foreground">
+          <div>SKU</div>
+          <div>Produto (opcional)</div>
+          <div className="text-center">Qtd</div>
+          <div className="text-center">Bônus (R$)</div>
+          <div className="text-center">Pacotes</div>
+          <div />
+        </div>
+
         {/* Linhas do pedido */}
-        <div className="space-y-4">
+        <div className="space-y-3">
           {itens.map((it) => {
-            const selectId = `sku-${it.id}`;
+            const skuId = `sku-${it.id}`;
+            const selectId = `select-${it.id}`;
             const qtyId = `qty-${it.id}`;
             const bonusReaisId = `bonusR-${it.id}`;
             const bonusPacId = `bonusP-${it.id}`;
 
+            const produto = it.sku ? mapaProdutos.get(it.sku) : undefined;
+
             return (
-              <div key={it.id} className="grid grid-cols-12 gap-3 items-end">
-                {/* Produto */}
-                <div className="col-span-5">
-                  <label htmlFor={selectId} className="block text-sm font-medium">
-                    Produto
-                  </label>
+              <div
+                key={it.id}
+                className="grid grid-cols-[140px_1fr_110px_120px_110px_48px] gap-3 items-center"
+              >
+                {/* SKU (texto com datalist) */}
+                <div>
+                  <input
+                    id={skuId}
+                    list="dlist-produtos"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    className="w-full h-10 border rounded-md px-2 bg-background"
+                    placeholder="ex: 707"
+                    value={it.sku}
+                    onChange={(e) =>
+                      atualizarItem(it.id, { sku: e.target.value.trim() })
+                    }
+                  />
+                </div>
+
+                {/* Seletor opcional (nome + sku) */}
+                <div>
                   <select
                     id={selectId}
-                    className="mt-1 w-full border rounded-md p-2 bg-white"
+                    className="w-full h-10 border rounded-md px-2 bg-background"
                     value={it.sku}
                     onChange={(e) => atualizarItem(it.id, { sku: e.target.value })}
+                    aria-label="Selecionar produto"
                   >
-                    <option value="" disabled>
-                      Selecione…
-                    </option>
+                    <option value="">Selecione…</option>
                     {produtos.map((p) => (
                       <option key={p.sku} value={p.sku}>
                         {p.nome} ({p.sku})
@@ -278,33 +265,31 @@ export default function Home() {
                 </div>
 
                 {/* Quantidade */}
-                <div className="col-span-2">
-                  <label htmlFor={qtyId} className="block text-sm font-medium">
-                    Qtd
+                <div className="text-center">
+                  <label htmlFor={qtyId} className="sr-only">
+                    Quantidade
                   </label>
                   <input
                     id={qtyId}
                     type="number"
                     min={1}
-                    className="mt-1 w-full border rounded-md p-2 bg-white"
+                    className="w-full h-10 border rounded-md px-2 bg-background text-center"
                     value={it.qty}
                     onChange={(e) =>
                       atualizarItem(it.id, { qty: Math.max(0, Number(e.target.value) || 0) })
                     }
+                    aria-invalid={it.qty <= 0}
                   />
                 </div>
 
                 {/* Bônus R$ */}
-                <div className="col-span-2">
-                  <label htmlFor={bonusReaisId} className="block text-sm font-medium">
-                    Bônus (R$)
-                  </label>
+                <div className="text-center">
                   <input
                     id={bonusReaisId}
                     type="number"
                     min={0}
                     step="0.01"
-                    className="mt-1 w-full border rounded-md p-2 bg-white"
+                    className="w-full h-10 border rounded-md px-2 bg-background text-center"
                     value={it.bonusReais}
                     onChange={(e) =>
                       atualizarItem(it.id, {
@@ -312,20 +297,18 @@ export default function Home() {
                       })
                     }
                     placeholder="0,00"
+                    aria-invalid={it.bonusReais < 0}
                   />
                 </div>
 
-                {/* Pacotes grátis */}
-                <div className="col-span-2">
-                  <label htmlFor={bonusPacId} className="block text-sm font-medium">
-                    Pacotes grátis
-                  </label>
+                {/* Pacotes */}
+                <div className="text-center">
                   <input
                     id={bonusPacId}
                     type="number"
                     min={0}
                     step={1}
-                    className="mt-1 w-full border rounded-md p-2 bg-white"
+                    className="w-full h-10 border rounded-md px-2 bg-background text-center"
                     value={it.bonusPacotes}
                     onChange={(e) =>
                       atualizarItem(it.id, {
@@ -333,58 +316,56 @@ export default function Home() {
                       })
                     }
                     placeholder="0"
+                    aria-invalid={it.bonusPacotes < 0}
                   />
                 </div>
 
                 {/* Remover */}
-                <div className="col-span-1">
+                <div className="flex items-center justify-center">
                   <button
                     type="button"
                     onClick={() => rmLinha(it.id)}
-                    className="w-full border rounded-md p-2 bg-white hover:bg-slate-50"
+                    className="inline-flex items-center justify-center h-10 w-10 rounded-md border text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
                     aria-label="Remover item"
                     title="Remover item"
                   >
-                    −
+                    <Trash2 className="size-4" />
                   </button>
                 </div>
               </div>
             );
           })}
+        </div>
 
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={addLinha}
-              className="px-3 py-2 rounded-md bg-slate-100 border border-slate-300 hover:bg-slate-200"
-            >
-              + Item
-            </button>
-            <button
-              type="button"
-              onClick={simular}
-              className="px-4 py-2 rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-            >
-              Simular (Regras)
-            </button>
-          </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={addLinha}
+            className="px-3 h-10 rounded-md bg-secondary text-secondary-foreground hover:opacity-90 border"
+          >
+            + Item
+          </button>
+          <button
+            type="button"
+            onClick={simular}
+            disabled={carregando}
+            className="px-4 h-10 rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+          >
+            Simular (Regras)
+          </button>
         </div>
 
         {/* Totais base */}
-        <div className="grid grid-cols-2 gap-4 p-4 rounded-md bg-slate-50">
-          <div>
-            <b>Receita (itens):</b> {moeda(totaisBase.receita)}
-          </div>
-          <div>
-            <b>COGS (itens):</b> {moeda(totaisBase.cogs)}
-          </div>
+        <div className="grid sm:grid-cols-2 gap-4 p-4 rounded-md bg-muted">
+          <div><b>Receita (itens):</b> {moeda(totaisBase.receita)}</div>
+          <div><b>COGS (itens):</b> {moeda(totaisBase.cogs)}</div>
         </div>
 
         {/* Resultado das Regras */}
         {sim && (
-          <section className="rounded-lg p-4 space-y-3 bg-blue-50 border border-blue-200" aria-live="polite">
+          <section className="rounded-lg p-4 space-y-3 bg-blue-50 border border-blue-200 dark:bg-blue-950/30 dark:border-blue-900/50" aria-live="polite">
             <h2 className="text-lg font-semibold">Resultado (Regras da Tabela)</h2>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid sm:grid-cols-2 gap-2">
               <div><b>Receita:</b> {moeda(sim.receita)}</div>
               <div><b>COGS:</b> {moeda(sim.cogs)}</div>
               <div><b>Margem sem bônus:</b> {pct(sim.margem_sem_bonus)}</div>
@@ -396,21 +377,17 @@ export default function Home() {
           </section>
         )}
 
-        {/* Bonificações manuais (cliente) */}
-        <section className="rounded-lg p-4 space-y-3 bg-green-50 border border-green-200" aria-live="polite">
+        {/* Bonificações manuais */}
+        <section className="rounded-lg p-4 space-y-3 bg-green-50 border border-green-200 dark:bg-green-950/30 dark:border-green-900/50" aria-live="polite">
           <h2 className="text-lg font-semibold">Bonificações Manuais (por item)</h2>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid sm:grid-cols-2 gap-2">
             <div><b>Receita:</b> {moeda(totaisBase.receita)}</div>
             <div><b>COGS:</b> {moeda(totaisBase.cogs)}</div>
             <div><b>Total bônus em dinheiro (manual):</b> {moeda(bonusManuais.bonusDinheiro)}</div>
             <div><b>Custo dos pacotes (manual):</b> {moeda(bonusManuais.custoPacotes)}</div>
-            <div className="col-span-2">
-              <b>Margem com bonificações manuais:</b> {pct(bonusManuais.margemComManuais)}
-            </div>
+            <div className="sm:col-span-2"><b>Margem com bonificações manuais:</b> {pct(bonusManuais.margemComManuais)}</div>
           </div>
         </section>
-
-        {erro && <p className="text-red-600">{erro}</p>}
       </div>
     </main>
   );
