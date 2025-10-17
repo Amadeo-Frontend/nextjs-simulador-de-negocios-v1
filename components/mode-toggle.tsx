@@ -1,42 +1,62 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import { useTheme } from "next-themes";
-import { Moon, Sun } from "lucide-react";
+import { useEffect, useState } from 'react';
+import { useTheme } from 'next-themes';
+import { Sun, Moon, Laptop } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
 
+/**
+ * Botão de troca de tema (light/dark/system)
+ * - Client component
+ * - Evita hydration error com `mounted`
+ */
 export function ModeToggle() {
   const { theme, setTheme, systemTheme } = useTheme();
-  const current = theme === "system" ? systemTheme : theme;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) return null;
+
+  const current =
+    theme === 'system' ? systemTheme ?? 'system' : theme ?? 'light';
+
+  const Icon =
+    current === 'dark' ? Moon : current === 'light' ? Sun : Laptop;
 
   return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        aria-label="Tema claro"
-        onClick={() => setTheme("light")}
-        className={`size-9 inline-flex items-center justify-center rounded-md border transition
-          ${current === "light" ? "bg-primary/10 border-primary" : "hover:bg-muted"}`}
-      >
-        <Sun className="size-4" />
-      </button>
-      <button
-        type="button"
-        aria-label="Tema sistema"
-        onClick={() => setTheme("system")}
-        className={`size-9 inline-flex items-center justify-center rounded-md border transition
-          ${theme === "system" ? "bg-primary/10 border-primary" : "hover:bg-muted"}`}
-      >
-        <span className="text-xs font-medium">SYS</span>
-      </button>
-      <button
-        type="button"
-        aria-label="Tema escuro"
-        onClick={() => setTheme("dark")}
-        className={`size-9 inline-flex items-center justify-center rounded-md border transition
-          ${current === "dark" ? "bg-primary/10 border-primary" : "hover:bg-muted"}`}
-      >
-        <Moon className="size-4" />
-      </button>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon"
+          aria-label="Alterar tema"
+          title={`Tema: ${current}`}
+        >
+          <Icon className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuLabel>Tema</DropdownMenuLabel>
+        <DropdownMenuItem onClick={() => setTheme('light')}>
+          <Sun className="mr-2 size-4" />
+          Claro
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme('dark')}>
+          <Moon className="mr-2 size-4" />
+          Escuro
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme('system')}>
+          <Laptop className="mr-2 size-4" />
+          Sistema
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

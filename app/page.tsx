@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import toast from 'react-hot-toast';
-import { Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { Trash2, LogOut } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ModeToggle } from '@/components/mode-toggle';
 
 /* ===== Tipos ===== */
 type Product = {
@@ -63,6 +66,8 @@ function extractApiMessage(body: unknown, fallback: string): string {
 
 /* ===== Página ===== */
 export default function Home() {
+  const router = useRouter();
+
   const [produtos, setProdutos] = useState<Product[]>([]);
   const [carregando, setCarregando] = useState(true);
 
@@ -73,6 +78,23 @@ export default function Home() {
   useEffect(() => { idSeq.current = 1; }, []);
 
   const [sim, setSim] = useState<Simulacao | null>(null);
+
+  /* ===== Botão sair ===== */
+  async function handleLogout() {
+    try {
+      const r = await fetch('/api/logout', { method: 'POST' });
+      if (!r.ok) {
+        const body = await safeJson(r);
+        const msg = extractApiMessage(body, 'Falha ao encerrar sessão.');
+        toast.error(msg);
+        return;
+        }
+      toast.success('Sessão encerrada.');
+      router.replace('/login');
+    } catch {
+      toast.error('Falha ao encerrar sessão.');
+    }
+  }
 
   /* ===== Carregar produtos ===== */
   useEffect(() => {
@@ -187,6 +209,15 @@ export default function Home() {
   /* ===== Render ===== */
   return (
     <main className="min-h-[calc(100vh-3.5rem)] p-6">
+      {/* Barra superior com toggle e sair */}
+      <div className="mx-auto max-w-6xl mb-4 flex items-center justify-end gap-2">
+        <ModeToggle />
+        <Button variant="destructive" onClick={handleLogout} className="gap-2">
+          <LogOut className="size-4" />
+          Sair
+        </Button>
+      </div>
+
       <div className="mx-auto max-w-6xl rounded-2xl border bg-card text-card-foreground shadow-sm p-6 space-y-6">
         <header className="space-y-1">
           <h1 className="text-2xl font-bold">Simulador de Pedido &amp; Bonificação</h1>
@@ -222,8 +253,6 @@ export default function Home() {
             const qtyId = `qty-${it.id}`;
             const bonusReaisId = `bonusR-${it.id}`;
             const bonusPacId = `bonusP-${it.id}`;
-
-            const produto = it.sku ? mapaProdutos.get(it.sku) : undefined;
 
             return (
               <div
@@ -322,15 +351,16 @@ export default function Home() {
 
                 {/* Remover */}
                 <div className="flex items-center justify-center">
-                  <button
+                  <Button
                     type="button"
+                    variant="destructive"
+                    size="icon"
                     onClick={() => rmLinha(it.id)}
-                    className="inline-flex items-center justify-center h-10 w-10 rounded-md border text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
                     aria-label="Remover item"
                     title="Remover item"
                   >
                     <Trash2 className="size-4" />
-                  </button>
+                  </Button>
                 </div>
               </div>
             );
@@ -338,21 +368,12 @@ export default function Home() {
         </div>
 
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={addLinha}
-            className="px-3 h-10 rounded-md bg-secondary text-secondary-foreground hover:opacity-90 border"
-          >
+          <Button type="button" variant="secondary" onClick={addLinha}>
             + Item
-          </button>
-          <button
-            type="button"
-            onClick={simular}
-            disabled={carregando}
-            className="px-4 h-10 rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
-          >
+          </Button>
+          <Button type="button" onClick={simular} disabled={carregando}>
             Simular (Regras)
-          </button>
+          </Button>
         </div>
 
         {/* Totais base */}
@@ -363,7 +384,10 @@ export default function Home() {
 
         {/* Resultado das Regras */}
         {sim && (
-          <section className="rounded-lg p-4 space-y-3 bg-blue-50 border border-blue-200 dark:bg-blue-950/30 dark:border-blue-900/50" aria-live="polite">
+          <section
+            className="rounded-lg p-4 space-y-3 bg-blue-50 border border-blue-200 dark:bg-blue-950/30 dark:border-blue-900/50"
+            aria-live="polite"
+          >
             <h2 className="text-lg font-semibold">Resultado (Regras da Tabela)</h2>
             <div className="grid sm:grid-cols-2 gap-2">
               <div><b>Receita:</b> {moeda(sim.receita)}</div>
